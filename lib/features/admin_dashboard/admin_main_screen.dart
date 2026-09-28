@@ -3,10 +3,10 @@ import 'package:get/get.dart';
 import '../../core/constants/color.dart';
 import 'admin_controller.dart';
 import 'admin_dashboard_home_view.dart';
+import 'chit_fund_dashboard_view.dart';
 import 'customers_view.dart';
 import 'admin_payments_view.dart';
-import 'reports_view.dart';
-import 'admin_settings_view.dart';
+import 'admin_drawer.dart';
 
 class AdminMainScreen extends StatelessWidget {
   const AdminMainScreen({super.key});
@@ -17,20 +17,20 @@ class AdminMainScreen extends StatelessWidget {
 
     final List<Widget> pages = [
       const AdminDashboardHomeView(),
+      const ChitFundDashboardView(),
       const CustomersView(),
       const AdminPaymentsView(),
-      const ReportsView(),
-      const AdminSettingsView(),
     ];
 
     return Obx(() {
       return Scaffold(
+        drawer: const AdminDrawer(),
         body: IndexedStack(
-          index: controller.selectedNavIndex.value,
+          index: controller.selectedNavIndex.value.clamp(0, pages.length - 1),
           children: pages,
         ),
         bottomNavigationBar: NavigationBar(
-          selectedIndex: controller.selectedNavIndex.value,
+          selectedIndex: controller.selectedNavIndex.value.clamp(0, pages.length - 1),
           onDestinationSelected: (index) {
             controller.selectedNavIndex.value = index;
           },
@@ -43,6 +43,11 @@ class AdminMainScreen extends StatelessWidget {
               label: 'Home',
             ),
             NavigationDestination(
+              icon: Icon(Icons.savings_outlined),
+              selectedIcon: Icon(Icons.savings, color: Color(0xFF0F766E)),
+              label: 'Chit Funds',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.people_outline),
               selectedIcon: Icon(Icons.people, color: AppColors.primary),
               label: 'Customers',
@@ -51,16 +56,6 @@ class AdminMainScreen extends StatelessWidget {
               icon: Icon(Icons.receipt_long_outlined),
               selectedIcon: Icon(Icons.receipt_long, color: AppColors.primary),
               label: 'Payments',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.analytics_outlined),
-              selectedIcon: Icon(Icons.analytics, color: AppColors.primary),
-              label: 'Reports',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings, color: AppColors.primary),
-              label: 'Settings',
             ),
           ],
         ),

@@ -14,6 +14,15 @@ class CustomerPayEmiView extends StatelessWidget {
   Widget build(BuildContext context) {
     final CustomerController controller = Get.find<CustomerController>();
 
+    final penaltyCalc = EmiHelper.calculateLatePenalty(
+      amount: installment.amount,
+      dueDateStr: installment.dueDate,
+    );
+    final bool hasPenalty = penaltyCalc['isPenaltyApplicable'] == true;
+    final double penaltyAmount = penaltyCalc['penaltyAmount'] as double;
+    final double totalPayable = penaltyCalc['totalDue'] as double;
+    final int daysOverdue = penaltyCalc['daysOverdue'] as int;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -79,20 +88,88 @@ class CustomerPayEmiView extends StatelessWidget {
                       ),
                     ),
                     const Divider(height: 32),
+
+                    if (hasPenalty) ...[
+                      // Late penalty notification banner
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Payment Overdue by $daysOverdue Days',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Colors.red.shade900,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Late fee applied: ₹1/day per ₹1,000 (+${EmiHelper.formatCurrency(penaltyAmount)})',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.red.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     // Amount Breakdown
                     const Text(
-                      'Amount to Pay',
+                      'Total Amount to Pay',
                       style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      EmiHelper.formatCurrency(installment.amount),
-                      style: const TextStyle(
+                      EmiHelper.formatCurrency(totalPayable),
+                      style: TextStyle(
                         fontSize: 38,
                         fontWeight: FontWeight.w900,
-                        color: AppColors.textPrimary,
+                        color: hasPenalty ? Colors.red.shade700 : AppColors.textPrimary,
                       ),
                     ),
+
+                    if (hasPenalty) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Base: ${EmiHelper.formatCurrency(installment.amount)}',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                            const Text('  +  ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text(
+                              'Late Fee: ${EmiHelper.formatCurrency(penaltyAmount)}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 20),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -121,7 +198,11 @@ class CustomerPayEmiView extends StatelessWidget {
                               const SizedBox(height: 2),
                               Text(
                                 EmiHelper.formatLongDate(installment.dueDate),
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: hasPenalty ? Colors.red.shade700 : AppColors.textPrimary,
+                                ),
                               ),
                             ],
                           ),
@@ -182,16 +263,18 @@ class CustomerPayEmiView extends StatelessWidget {
                 height: 56,
                 child: ElevatedButton.icon(
                   onPressed: () async {
-                    // Launch UPI Application
-                    await controller.launchUpiIntent(installment);
+                    // Launch UPI Application with calculated total due (including late penalty if applicable)
+                    await controller.launchUpiIntent(installment, overrideAmount: totalPayable);
 
                     // Requirement 16: Return prompt asking if payment was completed
-                    _showPaymentResultPrompt(controller, installment);
+                    if (context.mounted) {
+                      _showPaymentResultPrompt(controller, installment, penaltyAmount: penaltyAmount);
+                    }
                   },
                   icon: const Icon(Icons.flash_on, size: 24),
-                  label: const Text(
-                    'PAY NOW VIA UPI',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                  label: Text(
+                    hasPenalty ? 'PAY ${EmiHelper.formatCurrency(totalPayable)} VIA UPI' : 'PAY NOW VIA UPI',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.8),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.paid,
@@ -229,8 +312,9 @@ class CustomerPayEmiView extends StatelessWidget {
 
   void _showPaymentResultPrompt(
     CustomerController controller,
-    EmiInstallment installment,
-  ) {
+    EmiInstallment installment, {
+    double penaltyAmount = 0.0,
+  }) {
     Get.defaultDialog(
       title: 'Payment Status',
       titleStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -247,7 +331,9 @@ class CustomerPayEmiView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Confirm if you authorized the payment in your UPI app.',
+              penaltyAmount > 0
+                  ? 'Confirm payment of ${EmiHelper.formatCurrency(installment.amount + penaltyAmount)} (Includes ₹${penaltyAmount.toStringAsFixed(0)} late penalty).'
+                  : 'Confirm if you authorized the payment in your UPI app.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
@@ -280,7 +366,7 @@ class CustomerPayEmiView extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: () async {
                   Get.back(); // close dialog
-                  await controller.confirmOfflinePayment(installment);
+                  await controller.confirmOfflinePayment(installment, penaltyAmount: penaltyAmount);
                   Get.back(); // close payment view back to home
                 },
                 style: ElevatedButton.styleFrom(

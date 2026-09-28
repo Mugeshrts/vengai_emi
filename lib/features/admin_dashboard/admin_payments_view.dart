@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../../core/constants/color.dart';
 import '../../core/service/emi_helper.dart';
 import 'admin_controller.dart';
+import 'admin_drawer.dart';
 
 class AdminPaymentsView extends StatefulWidget {
   const AdminPaymentsView({super.key});
@@ -21,7 +22,15 @@ class _AdminPaymentsViewState extends State<AdminPaymentsView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      drawer: const AdminDrawer(),
       appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu, color: AppColors.primary),
+            tooltip: 'Menu',
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         title: const Text('All Payment Collections', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         foregroundColor: AppColors.textPrimary,
@@ -186,6 +195,21 @@ class _AdminPaymentsViewState extends State<AdminPaymentsView> {
                                 Text(
                                   'Ref: ${p.transactionId}',
                                   style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                ),
+                              ],
+                              if (p.penaltyAmount > 0) ...[
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade50,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: Colors.red.shade200),
+                                  ),
+                                  child: Text(
+                                    'Includes Late Fee: ${EmiHelper.formatCurrency(p.penaltyAmount)}',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red.shade900),
+                                  ),
                                 ),
                               ],
                             ],

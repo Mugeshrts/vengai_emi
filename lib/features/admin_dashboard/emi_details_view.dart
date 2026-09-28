@@ -43,6 +43,16 @@ class EmiDetailsView extends StatelessWidget {
         final nextSummary = controller.getCustomerNextEmiSummary(account.id);
         final nextStatus = nextSummary['status'] as String;
 
+        // Overdue calculations for this account
+        final overdueInsts = installments.where((i) => !i.isPaid && EmiHelper.computeInstallmentStatus(i) == EmiStatus.overdue).toList();
+        double totalOverduePenaltyForAccount = 0.0;
+        double totalOverdueCollectibleForAccount = 0.0;
+        for (var oi in overdueInsts) {
+          final pCalc = EmiHelper.calculateLatePenalty(amount: oi.amount, dueDateStr: oi.dueDate);
+          totalOverduePenaltyForAccount += (pCalc['penaltyAmount'] as num?)?.toDouble() ?? 0.0;
+          totalOverdueCollectibleForAccount += (pCalc['totalDue'] as num?)?.toDouble() ?? oi.amount;
+        }
+
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -94,9 +104,9 @@ class EmiDetailsView extends StatelessWidget {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: AppColors.getStatusColor(nextStatus),
+                            color: AppColors.getStatusBgColor(nextStatus),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -148,6 +158,51 @@ class EmiDetailsView extends StatelessWidget {
 
               const SizedBox(height: 16),
 
+              // Overdue Alert Banner if any installment is overdue
+              if (overdueInsts.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.red.shade300, width: 1.2),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 30),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'OVERDUE PAYMENT ALERT',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: Colors.red.shade900,
+                                fontSize: 14,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${overdueInsts.length} installment(s) currently overdue.\nTotal Due: ${EmiHelper.formatCurrency(totalOverdueCollectibleForAccount)} (Includes ${EmiHelper.formatCurrency(totalOverduePenaltyForAccount)} Late Penalty)',
+                              style: TextStyle(
+                                color: Colors.red.shade900,
+                                fontSize: 13,
+                                height: 1.3,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // 2. Financial Metrics Breakdown
               Container(
                 padding: const EdgeInsets.all(16),
@@ -176,6 +231,22 @@ class EmiDetailsView extends StatelessWidget {
                     _buildSummaryRow('Installments', '$paidCount paid / $pendingCount pending (Total ${account.emiMonths})'),
                     const Divider(height: 16),
                     _buildSummaryRow('Next Due Date', EmiHelper.formatDate(nextSummary['nextDueDate'])),
+                    if (totalOverduePenaltyForAccount > 0) ...[
+                      const Divider(height: 16),
+                      _buildSummaryRow(
+                        'Overdue Late Fee',
+                        '+ ${EmiHelper.formatCurrency(totalOverduePenaltyForAccount)}',
+                        valueColor: Colors.red.shade900,
+                        isBold: true,
+                      ),
+                      const Divider(height: 16),
+                      _buildSummaryRow(
+                        'Total Overdue Due',
+                        EmiHelper.formatCurrency(totalOverdueCollectibleForAccount),
+                        valueColor: AppColors.overdue,
+                        isBold: true,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -213,6 +284,11 @@ class EmiDetailsView extends StatelessWidget {
                 final status = EmiHelper.computeInstallmentStatus(inst);
                 final statusColor = AppColors.getStatusColor(status);
                 final statusBg = AppColors.getStatusBgColor(status);
+                final penaltyCalc = EmiHelper.calculateLatePenalty(amount: inst.amount, dueDateStr: inst.dueDate);
+                final bool isOverdue = !inst.isPaid && status == EmiStatus.overdue;
+                final double penaltyAmount = (penaltyCalc['penaltyAmount'] as num?)?.toDouble() ?? 0.0;
+                final int daysOverdue = (penaltyCalc['daysOverdue'] as num?)?.toInt() ?? 0;
+                final double totalDue = (penaltyCalc['totalDue'] as num?)?.toDouble() ?? inst.amount;
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -221,8 +297,8 @@ class EmiDetailsView extends StatelessWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: inst.isPaid ? AppColors.border : statusColor.withAlpha(100),
-                      width: inst.isPaid ? 1 : 1.5,
+                      color: isOverdue ? AppColors.overdue : (inst.isPaid ? AppColors.border : statusColor.withAlpha(100)),
+                      width: isOverdue ? 1.5 : (inst.isPaid ? 1 : 1.5),
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -258,14 +334,50 @@ class EmiDetailsView extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              EmiHelper.formatCurrency(inst.amount),
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                            if (isOverdue) ...[
+                              Row(
+                                children: [
+                                  Text(
+                                    EmiHelper.formatCurrency(totalDue),
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                      color: AppColors.overdue,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade100,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '$daysOverdue d overdue',
+                                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red.shade900),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Base: ${EmiHelper.formatCurrency(inst.amount)} + Late Fee: ${EmiHelper.formatCurrency(penaltyAmount)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.red.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ] else ...[
+                              Text(
+                                EmiHelper.formatCurrency(inst.amount),
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 3),
                             Text(
                               'Due: ${EmiHelper.formatDate(inst.dueDate)}',
@@ -317,14 +429,14 @@ class EmiDetailsView extends StatelessWidget {
                         ElevatedButton(
                           onPressed: () => _showRecordPaymentBottomSheet(context, controller, account, inst),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
+                            backgroundColor: isOverdue ? AppColors.overdue : AppColors.primary,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          child: const Text(
-                            'MARK PAID',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          child: Text(
+                            isOverdue ? 'MARK PAID (${EmiHelper.formatCurrency(totalDue)})' : 'MARK PAID',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ],
@@ -369,9 +481,20 @@ class EmiDetailsView extends StatelessWidget {
     final txnCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
 
+    final penaltyCalc = EmiHelper.calculateLatePenalty(
+      amount: installment.amount,
+      dueDateStr: installment.dueDate,
+    );
+    final bool hasPenalty = penaltyCalc['isPenaltyApplicable'] == true;
+    final double penaltyAmount = penaltyCalc['penaltyAmount'] as double;
+    final int daysOverdue = penaltyCalc['daysOverdue'] as int;
+    bool includePenalty = hasPenalty;
+
     Get.bottomSheet(
       StatefulBuilder(
         builder: (context, setSheetState) {
+          final double totalToCollect = installment.amount + (includePenalty ? penaltyAmount : 0.0);
+
           return Container(
             padding: const EdgeInsets.all(20),
             decoration: const BoxDecoration(
@@ -398,6 +521,58 @@ class EmiDetailsView extends StatelessWidget {
                   ),
                   const Divider(),
                   const SizedBox(height: 8),
+
+                  if (hasPenalty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Payment Overdue by $daysOverdue Days',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Rule: ₹1/day per ₹1,000 overdue = ${EmiHelper.formatCurrency(penaltyAmount)} late fee',
+                            style: TextStyle(fontSize: 12, color: Colors.red.shade800),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: includePenalty,
+                                activeColor: Colors.red.shade700,
+                                onChanged: (val) {
+                                  setSheetState(() => includePenalty = val ?? false);
+                                },
+                              ),
+                              GestureDetector(
+                                onTap: () => setSheetState(() => includePenalty = !includePenalty),
+                                child: Text(
+                                  'Collect Late Fee (${EmiHelper.formatCurrency(penaltyAmount)})',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red.shade900),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -411,9 +586,19 @@ class EmiDetailsView extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text('Installment: EMI #${installment.installmentNumber} • Due Date: ${EmiHelper.formatDate(installment.dueDate)}'),
                         const SizedBox(height: 4),
-                        Text(
-                          'Amount: ${EmiHelper.formatCurrency(installment.amount)}',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Collection Amount:', style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+                            Text(
+                              EmiHelper.formatCurrency(totalToCollect),
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: (hasPenalty && includePenalty) ? Colors.red.shade700 : AppColors.primary,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -469,17 +654,19 @@ class EmiDetailsView extends StatelessWidget {
                     child: ElevatedButton(
                       onPressed: () async {
                         Get.back();
+                        final finalPenalty = (hasPenalty && includePenalty) ? penaltyAmount : 0.0;
                         final success = await controller.recordPayment(
                           installment: installment,
                           account: account,
                           paymentMethod: selectedMethod,
                           transactionId: txnCtrl.text,
                           notes: notesCtrl.text,
+                          penaltyAmount: finalPenalty,
                         );
                         if (success) {
                           Get.snackbar(
                             'Payment Successful',
-                            'EMI #${installment.installmentNumber} payment recorded!',
+                            'EMI #${installment.installmentNumber} payment recorded!${finalPenalty > 0 ? " (includes ${EmiHelper.formatCurrency(finalPenalty)} late fee)" : ""}',
                             backgroundColor: AppColors.paidBg,
                             colorText: AppColors.paid,
                           );

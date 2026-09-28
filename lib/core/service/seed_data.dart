@@ -4,6 +4,7 @@ import '../models/emi_account_model.dart';
 import '../models/emi_installment_model.dart';
 import '../models/payment_model.dart';
 import '../models/reminder_model.dart';
+import '../models/chit_fund_model.dart';
 import 'emi_helper.dart';
 
 class SeedData {
@@ -68,6 +69,16 @@ class SeedData {
         mobile: '9940123456',
         role: 'CUSTOMER',
         customerId: 'CUST-1005',
+        isActive: true,
+      ),
+      UserModel(
+        id: 'usr_cust_6',
+        username: 'anitha',
+        password: '123',
+        name: 'Anitha Selvam',
+        mobile: '9840123999',
+        role: 'CUSTOMER',
+        customerId: 'CUST-1006',
         isActive: true,
       ),
     ];
@@ -505,12 +516,175 @@ class SeedData {
       ));
     }
 
+    // --- CHIT FUNDS SEED DATA ---
+    final List<ChitFund> chitFunds = [];
+    final List<ChitPayment> chitPayments = [];
+
+    // Scheme 1: Diwali Mega Electronics & Appliances Chit (12 Months, ₹2,000/mo)
+    final chit1StartDate = DateTime(today.year, today.month - 4, 1);
+    final chit1 = ChitFund(
+      id: 'CHIT-FND-101',
+      schemeName: 'Diwali Mega Electronics Chit 2026',
+      category: 'Electronics & Appliances',
+      totalValue: 24000,
+      monthlyContribution: 2000,
+      durationMonths: 12,
+      maxMembers: 10,
+      bonusAmount: 2500,
+      bonusDescription: 'Free 3-Burner Glass Top Gas Stove & Mixer Grinder Combo on Completion',
+      startDate: isoFormat.format(chit1StartDate),
+      status: 'ACTIVE',
+      createdAt: isoFormat.format(chit1StartDate),
+      notes: 'Eligible for festival electronics lucky draw at month 10.',
+      members: [
+        ChitMember(
+          customerId: 'CUST-1001',
+          customerName: 'Ravi Kumar',
+          customerMobile: '9876543210',
+          ticketNumber: 1,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 4,
+          totalContributed: 8000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1002',
+          customerName: 'Priya Sharma',
+          customerMobile: '9845123789',
+          ticketNumber: 2,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 4,
+          totalContributed: 8000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1003',
+          customerName: 'Suresh',
+          customerMobile: '9789123456',
+          ticketNumber: 3,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 3,
+          totalContributed: 6000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1004',
+          customerName: 'Lakshmi Narayanan',
+          customerMobile: '9443123456',
+          ticketNumber: 4,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 4,
+          totalContributed: 8000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1005',
+          customerName: 'Karthik Raja',
+          customerMobile: '9940123456',
+          ticketNumber: 5,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 4,
+          totalContributed: 8000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1006',
+          customerName: 'Anitha Selvam',
+          customerMobile: '9840123999',
+          ticketNumber: 6,
+          enrolledDate: isoFormat.format(chit1StartDate),
+          monthsPaid: 2,
+          totalContributed: 4000,
+          status: 'ACTIVE',
+        ),
+      ],
+    );
+    chitFunds.add(chit1);
+
+    // Ravi Kumar Payments for Chit 1
+    for (int m = 1; m <= 4; m++) {
+      final pDate = DateTime(today.year, today.month - (5 - m), 5);
+      chitPayments.add(ChitPayment(
+        id: 'CHIT-PAY-10$m',
+        chitFundId: chit1.id,
+        schemeName: chit1.schemeName,
+        customerId: 'CUST-1001',
+        customerName: 'Ravi Kumar',
+        monthNumber: m,
+        amount: 2000,
+        paymentDate: isoFormat.format(pDate),
+        paymentMethod: 'UPI',
+        transactionId: 'TXN-CHIT-10$m',
+        notes: 'Monthly electronics chit instalment #$m',
+      ));
+    }
+
+    // Scheme 2: Vengai Premium Home Furniture Chit (10 Months, ₹5,000/mo)
+    final chit2StartDate = DateTime(today.year, today.month - 2, 10);
+    final chit2 = ChitFund(
+      id: 'CHIT-FND-102',
+      schemeName: 'Vengai Premium Home Furniture Chit',
+      category: 'Home Furniture',
+      totalValue: 50000,
+      monthlyContribution: 5000,
+      durationMonths: 10,
+      maxMembers: 10,
+      bonusAmount: 3000,
+      bonusDescription: 'Free Solid Teakwood Center Table or ₹3,000 Furniture Voucher on Maturity',
+      startDate: isoFormat.format(chit2StartDate),
+      status: 'ACTIVE',
+      createdAt: isoFormat.format(chit2StartDate),
+      notes: 'Monthly furniture savings scheme for Sofas, Cots, Dining Sets & Wardrobes.',
+      members: [
+        ChitMember(
+          customerId: 'CUST-1001',
+          customerName: 'Ravi Kumar',
+          customerMobile: '9876543210',
+          ticketNumber: 1,
+          enrolledDate: isoFormat.format(chit2StartDate),
+          monthsPaid: 2,
+          totalContributed: 10000,
+          status: 'ACTIVE',
+        ),
+        ChitMember(
+          customerId: 'CUST-1002',
+          customerName: 'Priya Sharma',
+          customerMobile: '9845123789',
+          ticketNumber: 2,
+          enrolledDate: isoFormat.format(chit2StartDate),
+          monthsPaid: 2,
+          totalContributed: 10000,
+          status: 'ACTIVE',
+        ),
+      ],
+    );
+    chitFunds.add(chit2);
+
+    for (int m = 1; m <= 2; m++) {
+      final pDate = DateTime(today.year, today.month - (3 - m), 10);
+      chitPayments.add(ChitPayment(
+        id: 'CHIT-PAY-20$m',
+        chitFundId: chit2.id,
+        schemeName: chit2.schemeName,
+        customerId: 'CUST-1001',
+        customerName: 'Ravi Kumar',
+        monthNumber: m,
+        amount: 5000,
+        paymentDate: isoFormat.format(pDate),
+        paymentMethod: 'UPI',
+        transactionId: 'TXN-CHIT-20$m',
+        notes: 'Monthly chit instalment #$m',
+      ));
+    }
+
     return {
       'users': users,
       'accounts': accounts,
       'installments': installments,
       'payments': payments,
       'reminders': reminders,
+      'chitFunds': chitFunds,
+      'chitPayments': chitPayments,
     };
   }
 }

@@ -6,6 +6,7 @@ import '../../core/models/emi_account_model.dart';
 import '../../core/models/emi_installment_model.dart';
 import '../../core/models/payment_model.dart';
 import '../../core/models/reminder_model.dart';
+import '../../core/models/chit_fund_model.dart';
 import '../../core/service/storage_service.dart';
 import '../../core/service/emi_helper.dart';
 
@@ -19,6 +20,10 @@ class AdminController extends GetxController {
   final RxList<EmiInstallment> installments = <EmiInstallment>[].obs;
   final RxList<PaymentModel> payments = <PaymentModel>[].obs;
   final RxList<UserModel> users = <UserModel>[].obs;
+  final RxList<ChitFund> chitFunds = <ChitFund>[].obs;
+  final RxList<ChitPayment> chitPayments = <ChitPayment>[].obs;
+
+  List<UserModel> get customers => users.where((u) => u.isCustomer).toList();
 
   // Search & Filter
   final TextEditingController searchController = TextEditingController();
@@ -44,6 +49,8 @@ class AdminController extends GetxController {
     installments.assignAll(_storage.getInstallments());
     payments.assignAll(_storage.getPayments());
     users.assignAll(_storage.getUsers());
+    chitFunds.assignAll(_storage.getChitFunds());
+    chitPayments.assignAll(_storage.getChitPayments());
   }
 
   // --- Dynamic Dashboard & Report Metrics (Requirement 18 & 32) ---
@@ -110,6 +117,19 @@ class AdminController extends GetxController {
         .fold(0.0, (sum, i) => sum + i.amount);
   }
 
+  // Total Late Penalty accrued across all overdue installments (₹1 per day per ₹1000)
+  double get totalOverduePenaltyAmount {
+    return installments
+        .where((i) => !i.isPaid && EmiHelper.computeInstallmentStatus(i) == EmiStatus.overdue)
+        .fold(0.0, (sum, i) {
+      final penaltyCalc = EmiHelper.calculateLatePenalty(amount: i.amount, dueDateStr: i.dueDate);
+      return sum + ((penaltyCalc['penaltyAmount'] as num?)?.toDouble() ?? 0.0);
+    });
+  }
+
+  // Total Overdue Collectible including base and penalties
+  double get totalOverdueWithPenalty => totalOverdueAmount + totalOverduePenaltyAmount;
+
   // Upcoming EMIs (due within next 7 days)
   List<Map<String, dynamic>> get upcomingInstallmentsWithDetails {
     final list = <Map<String, dynamic>>[];
@@ -133,7 +153,7 @@ class AdminController extends GetxController {
     return list;
   }
 
-  // Overdue EMIs
+  // Overdue EMIs with Late Penalty breakdown
   List<Map<String, dynamic>> get overdueInstallmentsWithDetails {
     final list = <Map<String, dynamic>>[];
     for (var inst in installments) {
@@ -142,12 +162,15 @@ class AdminController extends GetxController {
       if (status == EmiStatus.overdue) {
         final account = accounts.firstWhereOrNull((a) => a.id == inst.emiAccountId);
         if (account != null) {
+          final penaltyCalc = EmiHelper.calculateLatePenalty(amount: inst.amount, dueDateStr: inst.dueDate);
           final days = (EmiHelper.getDaysDifference(inst.dueDate)).abs();
           list.add({
             'installment': inst,
             'account': account,
             'status': status,
-            'daysOverdue': days == 0 ? 1 : days,
+            'daysOverdue': penaltyCalc['daysOverdue'] ?? (days == 0 ? 1 : days),
+            'penaltyAmount': penaltyCalc['penaltyAmount'] ?? 0.0,
+            'totalDue': penaltyCalc['totalDue'] ?? inst.amount,
           });
         }
       }
@@ -217,10 +240,15 @@ class AdminController extends GetxController {
     }
 
     final status = EmiHelper.computeInstallmentStatus(nextUnpaid);
+    final penaltyCalc = EmiHelper.calculateLatePenalty(amount: nextUnpaid.amount, dueDateStr: nextUnpaid.dueDate);
     return {
       'nextDueDate': nextUnpaid.dueDate,
       'status': status,
       'nextInstallment': nextUnpaid,
+      'isPenaltyApplicable': penaltyCalc['isPenaltyApplicable'] ?? false,
+      'daysOverdue': penaltyCalc['daysOverdue'] ?? 0,
+      'penaltyAmount': penaltyCalc['penaltyAmount'] ?? 0.0,
+      'totalDue': penaltyCalc['totalDue'] ?? nextUnpaid.amount,
     };
   }
 
@@ -356,11 +384,19 @@ class AdminController extends GetxController {
     return true;
   }
 
-  // --- Record Payment (Requirements 27 & 28) ---
+  // --- Chit Fund Dashboard Metrics ---
+  int get totalChitSchemes => chitFunds.length;
+  int get activeChitSchemes => chitFunds.where((c) => c.status.toUpperCase() == 'ACTIVE').length;
+  double get totalChitValue => chitFunds.fold(0.0, (sum, c) => sum + (c.totalValue * (c.members.isEmpty ? c.maxMembers : c.members.length)));
+  double get totalChitCollected => chitPayments.fold(0.0, (sum, p) => sum + p.amount);
+  int get totalChitMembers => chitFunds.fold(0, (sum, c) => sum + c.members.length);
+
+  // --- Record Payment (Requirements 27 & 28 + Late Penalty Rule) ---
   Future<bool> recordPayment({
     required EmiInstallment installment,
     required EmiAccount account,
     required String paymentMethod,
+    double penaltyAmount = 0.0,
     String? transactionId,
     String? notes,
   }) async {
@@ -381,6 +417,8 @@ class AdminController extends GetxController {
         ? transactionId.trim()
         : 'TXN-${DateTime.now().millisecondsSinceEpoch % 1000000}';
 
+    final totalPaid = installment.amount + penaltyAmount;
+
     // 1. Mark installment as Paid
     final instIndex = installments.indexWhere((i) => i.id == installment.id);
     if (instIndex != -1) {
@@ -389,6 +427,7 @@ class AdminController extends GetxController {
         paidDate: todayStr,
         paymentMethod: paymentMethod,
         transactionId: effectiveTxnId,
+        penaltyAmount: penaltyAmount,
         notes: notes,
       );
       installments[instIndex] = updatedInst;
@@ -402,16 +441,19 @@ class AdminController extends GetxController {
       customerId: account.customerId,
       customerName: account.customerName,
       installmentNumber: installment.installmentNumber,
-      amount: installment.amount,
+      amount: totalPaid,
+      penaltyAmount: penaltyAmount,
       paymentDate: todayStr,
       paymentMethod: paymentMethod,
       transactionId: effectiveTxnId,
       status: 'Paid',
-      notes: notes,
+      notes: penaltyAmount > 0
+          ? '${notes != null && notes.isNotEmpty ? "$notes • " : ""}Includes Late Fee ₹${penaltyAmount.toStringAsFixed(0)}'
+          : notes,
     );
     payments.insert(0, newPayment);
 
-    // 3. Update account remaining amount and status
+    // 3. Update account remaining amount and status (deduct principal installment amount)
     final accIndex = accounts.indexWhere((a) => a.id == account.id);
     if (accIndex != -1) {
       final updatedRemaining = (accounts[accIndex].remainingAmount - installment.amount).clamp(0.0, double.infinity);
@@ -439,13 +481,199 @@ class AdminController extends GetxController {
         customerId: account.customerId,
         installmentId: installment.id,
         title: '✓ Payment Recorded',
-        message: 'Payment of ${EmiHelper.formatCurrency(installment.amount)} for EMI #${installment.installmentNumber} was successfully recorded via $paymentMethod.',
+        message: 'Payment of ${EmiHelper.formatCurrency(totalPaid)}${penaltyAmount > 0 ? " (includes ₹${penaltyAmount.toStringAsFixed(0)} late fee)" : ""} for EMI #${installment.installmentNumber} was successfully recorded via $paymentMethod.',
         createdAt: todayStr,
         isRead: false,
       ),
     );
     await _storage.saveReminders(rems);
 
+    loadAllData();
+    return true;
+  }
+
+  // --- Create Chit Fund (Admin Action: + CREATE FUND) ---
+  Future<bool> createChitFund({
+    required String schemeName,
+    required String category,
+    required double totalValue,
+    required double monthlyContribution,
+    required int durationMonths,
+    required int maxMembers,
+    double bonusAmount = 0.0,
+    String bonusDescription = '',
+    required DateTime startDate,
+    String? notes,
+    List<ChitMember>? initialMembers,
+  }) async {
+    final iso = DateFormat('yyyy-MM-dd');
+    final newFund = ChitFund(
+      id: 'CHIT-FND-${DateTime.now().millisecondsSinceEpoch % 100000}',
+      schemeName: schemeName.trim(),
+      category: category.isEmpty ? 'General' : category,
+      totalValue: totalValue,
+      monthlyContribution: monthlyContribution,
+      durationMonths: durationMonths,
+      maxMembers: maxMembers,
+      bonusAmount: bonusAmount,
+      bonusDescription: bonusDescription.trim(),
+      startDate: iso.format(startDate),
+      status: 'ACTIVE',
+      createdAt: iso.format(DateTime.now()),
+      members: initialMembers ?? [],
+      notes: notes?.trim(),
+    );
+
+    chitFunds.add(newFund);
+    await _storage.saveChitFunds(chitFunds);
+    loadAllData();
+    return true;
+  }
+
+  // --- Enroll Member into Chit Fund ---
+  Future<bool> enrollCustomerInChit({
+    required ChitFund fund,
+    required String customerId,
+    required String customerName,
+    required String customerMobile,
+  }) async {
+    final fundIdx = chitFunds.indexWhere((f) => f.id == fund.id);
+    if (fundIdx == -1) return false;
+
+    final targetFund = chitFunds[fundIdx];
+    if (targetFund.members.length >= targetFund.maxMembers) {
+      Get.snackbar('Scheme Full', 'Maximum member limit (${targetFund.maxMembers}) reached for this scheme.', backgroundColor: Colors.amber.shade100);
+      return false;
+    }
+
+    final iso = DateFormat('yyyy-MM-dd');
+    final newMember = ChitMember(
+      customerId: customerId,
+      customerName: customerName,
+      customerMobile: customerMobile,
+      ticketNumber: targetFund.members.length + 1,
+      enrolledDate: iso.format(DateTime.now()),
+      monthsPaid: 0,
+      totalContributed: 0.0,
+      status: 'ACTIVE',
+    );
+
+    final updatedMembers = List<ChitMember>.from(targetFund.members)..add(newMember);
+    chitFunds[fundIdx] = targetFund.copyWith(members: updatedMembers);
+
+    await _storage.saveChitFunds(chitFunds);
+    loadAllData();
+    return true;
+  }
+
+  // --- Register Customer (for Chit Fund or Standalone) with Username & Password ---
+  Future<UserModel> registerCustomer({
+    required String name,
+    required String mobile,
+    required String username,
+    required String password,
+    String? address,
+  }) async {
+    final cleanUsername = username.trim().isNotEmpty
+        ? username.trim()
+        : name.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    final cleanPassword = password.trim().isNotEmpty ? password.trim() : '123456';
+    final customerId = 'CUST-${1000 + (DateTime.now().millisecondsSinceEpoch % 9000)}';
+
+    // Check if user already exists
+    final existing = users.firstWhereOrNull((u) =>
+        u.mobile == mobile.trim() ||
+        u.username.toLowerCase() == cleanUsername.toLowerCase());
+
+    if (existing != null) {
+      return existing;
+    }
+
+    final newUser = UserModel(
+      id: 'usr_$customerId',
+      username: cleanUsername,
+      password: cleanPassword,
+      name: name.trim(),
+      mobile: mobile.trim(),
+      role: 'CUSTOMER',
+      customerId: customerId,
+    );
+
+    users.add(newUser);
+    await _storage.saveUsers(users);
+    loadAllData();
+    return newUser;
+  }
+
+  // --- Create & Enroll New Customer with Username/Password in Chit Fund ---
+  Future<bool> createAndEnrollChitCustomer({
+    required ChitFund fund,
+    required String name,
+    required String mobile,
+    required String username,
+    required String password,
+  }) async {
+    final newUser = await registerCustomer(
+      name: name,
+      mobile: mobile,
+      username: username,
+      password: password,
+    );
+    return enrollCustomerInChit(
+      fund: fund,
+      customerId: newUser.customerId ?? newUser.id,
+      customerName: newUser.name,
+      customerMobile: newUser.mobile,
+    );
+  }
+
+  // --- Record Chit Payment ---
+  Future<bool> recordChitPayment({
+    required ChitFund fund,
+    required ChitMember member,
+    required double amount,
+    required String paymentMethod,
+    String? transactionId,
+    String? notes,
+  }) async {
+    final iso = DateFormat('yyyy-MM-dd');
+    final todayStr = iso.format(DateTime.now());
+    final effectiveTxnId = (transactionId != null && transactionId.trim().isNotEmpty)
+        ? transactionId.trim()
+        : 'TXN-CHIT-${DateTime.now().millisecondsSinceEpoch % 1000000}';
+
+    final payment = ChitPayment(
+      id: 'CHIT-PAY-${DateTime.now().millisecondsSinceEpoch}',
+      chitFundId: fund.id,
+      schemeName: fund.schemeName,
+      customerId: member.customerId,
+      customerName: member.customerName,
+      monthNumber: member.monthsPaid + 1,
+      amount: amount,
+      paymentDate: todayStr,
+      paymentMethod: paymentMethod,
+      transactionId: effectiveTxnId,
+      notes: notes,
+    );
+    chitPayments.insert(0, payment);
+
+    // Update member monthsPaid and totalContributed
+    final fundIdx = chitFunds.indexWhere((f) => f.id == fund.id);
+    if (fundIdx != -1) {
+      final f = chitFunds[fundIdx];
+      final mIdx = f.members.indexWhere((m) => m.customerId == member.customerId);
+      if (mIdx != -1) {
+        f.members[mIdx].monthsPaid += 1;
+        f.members[mIdx].totalContributed += amount;
+        if (f.members[mIdx].monthsPaid >= f.durationMonths) {
+          f.members[mIdx].status = 'MATURED';
+        }
+      }
+      chitFunds[fundIdx] = f;
+    }
+
+    await _storage.saveChitPayments(chitPayments);
+    await _storage.saveChitFunds(chitFunds);
     loadAllData();
     return true;
   }

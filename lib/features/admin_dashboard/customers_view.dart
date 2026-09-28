@@ -5,6 +5,7 @@ import '../../core/service/emi_helper.dart';
 import 'admin_controller.dart';
 import 'emi_details_view.dart';
 import 'create_emi_view.dart';
+import 'admin_drawer.dart';
 
 class CustomersView extends StatelessWidget {
   const CustomersView({super.key});
@@ -17,7 +18,15 @@ class CustomersView extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      drawer: const AdminDrawer(),
       appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu, color: AppColors.primary),
+            tooltip: 'Menu',
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         title: const Text('Customer EMI Accounts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         foregroundColor: AppColors.textPrimary,
@@ -219,6 +228,13 @@ class CustomersView extends StatelessWidget {
                                         'Next Due: ${EmiHelper.formatDate(summary['nextDueDate'])}',
                                         style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                                       ),
+                                      if (status == EmiStatus.overdue && summary['isPenaltyApplicable'] == true) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '+ Late Fee: ${EmiHelper.formatCurrency(summary['penaltyAmount'])} (Total: ${EmiHelper.formatCurrency(summary['totalDue'])})',
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade900),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),

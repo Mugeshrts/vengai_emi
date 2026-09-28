@@ -58,6 +58,46 @@ class EmiHelper {
     }
   }
 
+  /// Calculate late payment penalty (User Rule: if paid after 5 days from due date,
+  /// calculate 1000 rs = 1 rs per day penalty, 5 days = 5 rs)
+  static Map<String, dynamic> calculateLatePenalty({
+    required double amount,
+    required String dueDateStr,
+  }) {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final due = DateTime.parse(dueDateStr);
+      final normalizedDue = DateTime(due.year, due.month, due.day);
+
+      final daysOverdue = today.difference(normalizedDue).inDays;
+      if (daysOverdue > 0) {
+        final double rawPenalty = (amount / 1000.0) * 1.0 * daysOverdue;
+        final double penalty = double.parse(rawPenalty.toStringAsFixed(2));
+        return {
+          'daysOverdue': daysOverdue,
+          'isPenaltyApplicable': true,
+          'penaltyAmount': penalty,
+          'totalDue': amount + penalty,
+        };
+      } else {
+        return {
+          'daysOverdue': 0,
+          'isPenaltyApplicable': false,
+          'penaltyAmount': 0.0,
+          'totalDue': amount,
+        };
+      }
+    } catch (_) {
+      return {
+        'daysOverdue': 0,
+        'isPenaltyApplicable': false,
+        'penaltyAmount': 0.0,
+        'totalDue': amount,
+      };
+    }
+  }
+
   /// Centralized EMI Status Logic (Requirement 11)
   /// IF paid -> PAID
   /// ELSE IF today > due date -> OVERDUE

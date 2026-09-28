@@ -8,6 +8,7 @@ import '../../core/models/emi_account_model.dart';
 import '../../core/models/emi_installment_model.dart';
 import '../../core/models/payment_model.dart';
 import '../../core/models/reminder_model.dart';
+import '../../core/models/chit_fund_model.dart';
 import '../../core/service/storage_service.dart';
 import '../../core/service/emi_helper.dart';
 import '../auth/auth_controller.dart';
@@ -26,6 +27,8 @@ class CustomerController extends GetxController {
   final RxList<EmiInstallment> allInstallments = <EmiInstallment>[].obs;
   final RxList<PaymentModel> payments = <PaymentModel>[].obs;
   final RxList<ReminderModel> reminders = <ReminderModel>[].obs;
+  final RxList<ChitFund> customerChitFunds = <ChitFund>[].obs;
+  final RxList<ChitPayment> customerChitPayments = <ChitPayment>[].obs;
 
   @override
   void onInit() {
@@ -79,6 +82,17 @@ class CustomerController extends GetxController {
     final userReminders = allReminders.where((r) => r.customerId == cId).toList();
     userReminders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     reminders.assignAll(userReminders);
+
+    // Load enrolled Chit Funds for this customer
+    final allChits = _storage.getChitFunds();
+    final enrolledChits = allChits.where((f) => f.members.any((m) => m.customerId == cId)).toList();
+    customerChitFunds.assignAll(enrolledChits);
+
+    // Load customer's Chit Payments
+    final allChitPayments = _storage.getChitPayments();
+    final userChitPayments = allChitPayments.where((p) => p.customerId == cId).toList();
+    userChitPayments.sort((a, b) => b.paymentDate.compareTo(a.paymentDate));
+    customerChitPayments.assignAll(userChitPayments);
   }
 
   // --- Active vs Completed Products ---
@@ -232,12 +246,16 @@ class CustomerController extends GetxController {
     await _storage.saveReminders(allStorageRems);
   }
 
-  // --- UPI Intent Launch ---
-  Future<bool> launchUpiIntent(EmiInstallment installment) async {
+  // --- UPI Intent Launch (Supports Late Penalty) ---
+  Future<bool> launchUpiIntent(EmiInstallment installment, {double? overrideAmount}) async {
     final settings = _storage.getSettings();
     final upiId = Uri.encodeComponent(settings['upiId'] ?? 'vengaimart@upi');
     final payeeName = Uri.encodeComponent(settings['payeeName'] ?? 'VENGAI MART');
-    final amount = installment.amount.toStringAsFixed(2);
+
+    final penaltyCalc = EmiHelper.calculateLatePenalty(amount: installment.amount, dueDateStr: installment.dueDate);
+    final totalPayable = overrideAmount ?? (penaltyCalc['isPenaltyApplicable'] == true ? penaltyCalc['totalDue'] as double : installment.amount);
+    final amount = totalPayable.toStringAsFixed(2);
+
     final relatedAcc = getAccountForInstallment(installment);
     final prodName = relatedAcc?.productName ?? 'Product';
     final note = Uri.encodeComponent('VENGAI MART - $prodName EMI #${installment.installmentNumber}');
@@ -268,8 +286,8 @@ class CustomerController extends GetxController {
     }
   }
 
-  // --- Offline Payment Confirmation ---
-  Future<void> confirmOfflinePayment(EmiInstallment installment) async {
+  // --- Offline Payment Confirmation (Supports Late Penalty Record) ---
+  Future<void> confirmOfflinePayment(EmiInstallment installment, {double penaltyAmount = 0.0}) async {
     final relatedAcc = getAccountForInstallment(installment);
     if (relatedAcc == null) return;
 
@@ -285,11 +303,13 @@ class CustomerController extends GetxController {
       allStorageInsts[idx].paidDate = todayStr;
       allStorageInsts[idx].paymentMethod = 'UPI';
       allStorageInsts[idx].transactionId = txnId;
+      allStorageInsts[idx].penaltyAmount = penaltyAmount;
       await _storage.saveInstallments(allStorageInsts);
     }
 
     // 2. Insert into payments
     final allPayments = _storage.getPayments();
+    final totalPaidAmount = installment.amount + penaltyAmount;
     final newPayment = PaymentModel(
       id: 'PAY-${DateTime.now().millisecondsSinceEpoch}',
       emiAccountId: relatedAcc.id,
@@ -297,17 +317,20 @@ class CustomerController extends GetxController {
       customerId: relatedAcc.customerId,
       customerName: relatedAcc.customerName,
       installmentNumber: installment.installmentNumber,
-      amount: installment.amount,
+      amount: totalPaidAmount,
+      penaltyAmount: penaltyAmount,
       paymentDate: todayStr,
       paymentMethod: 'UPI',
       transactionId: txnId,
       status: 'Paid',
-      notes: 'Customer self-service UPI payment for ${relatedAcc.productName}',
+      notes: penaltyAmount > 0
+          ? 'Customer UPI Payment (Includes ₹${penaltyAmount.toStringAsFixed(0)} late penalty fee)'
+          : 'Customer self-service UPI payment for ${relatedAcc.productName}',
     );
     allPayments.insert(0, newPayment);
     await _storage.savePayments(allPayments);
 
-    // 3. Update account remaining balance
+    // 3. Update account remaining balance (base principal deduction)
     final allStorageAccounts = _storage.getEmiAccounts();
     final accIdx = allStorageAccounts.indexWhere((a) => a.id == relatedAcc.id);
     if (accIdx != -1) {
@@ -329,7 +352,7 @@ class CustomerController extends GetxController {
         customerId: relatedAcc.customerId,
         installmentId: installment.id,
         title: '✓ Payment Recorded',
-        message: 'Your payment of ${EmiHelper.formatCurrency(installment.amount)} for ${relatedAcc.productName} (EMI #${installment.installmentNumber}) has been recorded.',
+        message: 'Your payment of ${EmiHelper.formatCurrency(totalPaidAmount)} for ${relatedAcc.productName} (EMI #${installment.installmentNumber}) has been recorded.',
         createdAt: todayStr,
         isRead: false,
       ),
@@ -345,5 +368,60 @@ class CustomerController extends GetxController {
       colorText: AppColors.paid,
       duration: const Duration(seconds: 3),
     );
+  }
+
+  // --- Pay Chit Fund Contribution via UPI or Confirmation ---
+  Future<bool> payCustomerChitContribution({
+    required ChitFund fund,
+    required ChitMember member,
+  }) async {
+    final iso = DateFormat('yyyy-MM-dd');
+    final todayStr = iso.format(DateTime.now());
+    final txnId = 'CHIT-UPI-${DateTime.now().millisecondsSinceEpoch % 10000000}';
+
+    // 1. Record chit payment
+    final allChitPayments = _storage.getChitPayments();
+    final payment = ChitPayment(
+      id: 'CHIT-PAY-${DateTime.now().millisecondsSinceEpoch}',
+      chitFundId: fund.id,
+      schemeName: fund.schemeName,
+      customerId: member.customerId,
+      customerName: member.customerName,
+      monthNumber: member.monthsPaid + 1,
+      amount: fund.monthlyContribution,
+      paymentDate: todayStr,
+      paymentMethod: 'UPI',
+      transactionId: txnId,
+      notes: 'Customer contribution for Month #${member.monthsPaid + 1}',
+    );
+    allChitPayments.insert(0, payment);
+    await _storage.saveChitPayments(allChitPayments);
+
+    // 2. Update member contribution in ChitFund
+    final allFunds = _storage.getChitFunds();
+    final fIdx = allFunds.indexWhere((f) => f.id == fund.id);
+    if (fIdx != -1) {
+      final f = allFunds[fIdx];
+      final mIdx = f.members.indexWhere((m) => m.customerId == member.customerId);
+      if (mIdx != -1) {
+        f.members[mIdx].monthsPaid += 1;
+        f.members[mIdx].totalContributed += fund.monthlyContribution;
+        if (f.members[mIdx].monthsPaid >= f.durationMonths) {
+          f.members[mIdx].status = 'MATURED';
+        }
+      }
+      allFunds[fIdx] = f;
+      await _storage.saveChitFunds(allFunds);
+    }
+
+    loadCustomerData();
+    Get.snackbar(
+      'Contribution Received!',
+      'Paid ${EmiHelper.formatCurrency(fund.monthlyContribution)} for Month #${member.monthsPaid} of ${fund.schemeName}',
+      backgroundColor: AppColors.paidBg,
+      colorText: AppColors.paid,
+      duration: const Duration(seconds: 3),
+    );
+    return true;
   }
 }

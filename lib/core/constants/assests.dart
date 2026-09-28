@@ -9,8 +9,10 @@ class AppConstants {
   static const String keyInstallments = 'vm_installments';
   static const String keyPayments = 'vm_payments';
   static const String keyReminders = 'vm_reminders';
+  static const String keyChitFunds = 'vm_chit_funds';
+  static const String keyChitPayments = 'vm_chit_payments';
   static const String keySettings = 'vm_settings';
-  static const String keyDataInitialized = 'vm_seed_initialized_v1';
+  static const String keyDataInitialized = 'vm_seed_initialized_v2';
 
   // Default UPI Configuration (configurable in Admin Settings)
   static const String defaultUpiId = 'vengaimart@upi';

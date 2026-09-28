@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../core/constants/color.dart';
 import '../../core/service/emi_helper.dart';
+import '../../core/models/chit_fund_model.dart';
 import 'customer_controller.dart';
 import 'customer_pay_emi_view.dart';
 import 'customer_notifications_view.dart';
@@ -89,6 +90,17 @@ class CustomerHomeView extends StatelessWidget {
         final nextStatus = controller.nextEmiStatus;
         final days = controller.daysRemainingForNextEmi;
         final nextAccount = nextInst != null ? controller.getAccountForInstallment(nextInst) : null;
+
+        // Calculate late penalty (₹1/day per ₹1,000 for each day overdue)
+        final penaltyCalc = nextInst != null
+            ? EmiHelper.calculateLatePenalty(amount: nextInst.amount, dueDateStr: nextInst.dueDate)
+            : {'isPenaltyApplicable': false, 'penaltyAmount': 0.0, 'totalDue': 0.0, 'daysOverdue': 0};
+        final bool hasPenalty = penaltyCalc['isPenaltyApplicable'] == true;
+        final double penaltyAmount = penaltyCalc['penaltyAmount'] as double;
+        final double totalDue = penaltyCalc['totalDue'] as double;
+        final int overdueDays = penaltyCalc['daysOverdue'] as int;
+
+        final bool isPureChitFundCustomer = accounts.isEmpty && controller.customerChitFunds.isNotEmpty;
 
         return RefreshIndicator(
           onRefresh: () async => controller.loadCustomerData(),
@@ -274,13 +286,32 @@ class CustomerHomeView extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          EmiHelper.formatCurrency(nextInst.amount),
+                          EmiHelper.formatCurrency(hasPenalty ? totalDue : nextInst.amount),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 40,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
+                        if (hasPenalty) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withAlpha(45),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.redAccent.withAlpha(90)),
+                            ),
+                            child: Text(
+                              'Base: ${EmiHelper.formatCurrency(nextInst.amount)} + Late Fee: ${EmiHelper.formatCurrency(penaltyAmount)} ($overdueDays days overdue)',
+                              style: const TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Text(
                           'Due on: ${EmiHelper.formatLongDate(nextInst.dueDate)}',
@@ -311,9 +342,9 @@ class CustomerHomeView extends StatelessWidget {
                           child: ElevatedButton.icon(
                             onPressed: () => Get.to(() => CustomerPayEmiView(installment: nextInst)),
                             icon: const Icon(Icons.flash_on, size: 24),
-                            label: const Text(
-                              'PAY EMI',
-                              style: TextStyle(
+                            label: Text(
+                              hasPenalty ? 'PAY ${EmiHelper.formatCurrency(totalDue)}' : 'PAY EMI',
+                              style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 1.2,
@@ -332,6 +363,9 @@ class CustomerHomeView extends StatelessWidget {
                       ],
                     ),
                   ),
+                ] else if (isPureChitFundCustomer) ...[
+                  // Pure Chit Fund Customer Top Hero Card!
+                  _buildPureChitFundHeroCard(context, controller),
                 ] else ...[
                   // All EMIs Paid Congratulatory Card
                   Container(
@@ -466,152 +500,224 @@ class CustomerHomeView extends StatelessWidget {
                 ],
 
                 // 4. Customer Financial Summary
-                Text(
-                  controller.selectedAccountId.value == 'ALL' ? 'TOTAL EMI COMMITMENT' : 'PRODUCT EMI SUMMARY',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                    color: AppColors.textPrimary,
+                if (isPureChitFundCustomer) ...[
+                  _buildPureChitFundSummaryCard(controller),
+                ] else ...[
+                  Text(
+                    controller.selectedAccountId.value == 'ALL' ? 'TOTAL EMI COMMITMENT' : 'PRODUCT EMI SUMMARY',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 10),
 
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildSummaryMetric(
-                              'Total Value',
-                              EmiHelper.formatCurrency(controller.totalEmiValue),
-                              AppColors.textPrimary,
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildSummaryMetric(
+                                'Total Value',
+                                EmiHelper.formatCurrency(controller.totalEmiValue),
+                                AppColors.textPrimary,
+                              ),
                             ),
-                          ),
-                          Container(width: 1, height: 40, color: AppColors.border),
-                          Expanded(
-                            child: _buildSummaryMetric(
-                              'Paid',
-                              EmiHelper.formatCurrency(controller.paidAmount),
-                              AppColors.paid,
+                            Container(width: 1, height: 40, color: AppColors.border),
+                            Expanded(
+                              child: _buildSummaryMetric(
+                                'Paid',
+                                EmiHelper.formatCurrency(controller.paidAmount),
+                                AppColors.paid,
+                              ),
                             ),
-                          ),
-                          Container(width: 1, height: 40, color: AppColors.border),
-                          Expanded(
-                            child: _buildSummaryMetric(
-                              'Remaining',
-                              EmiHelper.formatCurrency(controller.remainingAmount),
-                              AppColors.overdue,
+                            Container(width: 1, height: 40, color: AppColors.border),
+                            Expanded(
+                              child: _buildSummaryMetric(
+                                'Remaining',
+                                EmiHelper.formatCurrency(controller.remainingAmount),
+                                AppColors.overdue,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 28),
-                      // Progress Bar
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            controller.selectedAccountId.value == 'ALL' ? 'Overall Progress' : 'Installments Paid',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          Text(
-                            '${controller.paidCount} of ${controller.totalCount} EMIs Paid',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: LinearProgressIndicator(
-                          value: controller.progressFraction,
-                          minHeight: 12,
-                          backgroundColor: AppColors.surfaceVariant,
-                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.paid),
+                          ],
                         ),
-                      ),
-                    ],
+                        const Divider(height: 28),
+                        // Progress Bar
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              controller.selectedAccountId.value == 'ALL' ? 'Overall Progress' : 'Installments Paid',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            Text(
+                              '${controller.paidCount} of ${controller.totalCount} EMIs Paid',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: controller.progressFraction,
+                            minHeight: 12,
+                            backgroundColor: AppColors.surfaceVariant,
+                            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.paid),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
+
+                // Customer's Enrolled Chit Funds Section (if not pure chit fund or multiple chit funds)
+                if (controller.customerChitFunds.isNotEmpty && (!isPureChitFundCustomer || controller.customerChitFunds.length > 1)) ...[
+                  const SizedBox(height: 24),
+                  _buildCustomerChitFundsSection(context, controller),
+                ],
 
                 const SizedBox(height: 20),
 
                 // Quick Navigation Tiles
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => controller.selectedNavIndex.value = 1, // switch to My EMI
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(Icons.calendar_month, color: AppColors.primary, size: 28),
-                              SizedBox(height: 8),
-                              Text(
-                                'View Schedule',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                              SizedBox(height: 2),
-                              Text('All months & dates', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => controller.selectedNavIndex.value = 2, // switch to History
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(Icons.receipt_long, color: AppColors.paid, size: 28),
-                              SizedBox(height: 8),
-                              Text(
-                                'Payment History',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                              SizedBox(height: 2),
-                              Text('Receipts & records', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                            ],
+                if (isPureChitFundCustomer) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => controller.selectedNavIndex.value = 1,
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.savings_rounded, color: Color(0xFF0F766E), size: 28),
+                                SizedBox(height: 8),
+                                Text(
+                                  'My Chit Schemes',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                SizedBox(height: 2),
+                                Text('Contributions & plans', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => controller.selectedNavIndex.value = 2,
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.receipt_long, color: AppColors.paid, size: 28),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Payment History',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                SizedBox(height: 2),
+                                Text('Receipts & records', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => controller.selectedNavIndex.value = 1, // switch to My EMI
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.calendar_month, color: AppColors.primary, size: 28),
+                                SizedBox(height: 8),
+                                Text(
+                                  'View Schedule',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                SizedBox(height: 2),
+                                Text('All months & dates', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => controller.selectedNavIndex.value = 2, // switch to History
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.receipt_long, color: AppColors.paid, size: 28),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Payment History',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                SizedBox(height: 2),
+                                Text('Receipts & records', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
 
                 const SizedBox(height: 24),
               ],
@@ -637,6 +743,522 @@ class CustomerHomeView extends StatelessWidget {
             fontSize: 16,
             fontWeight: FontWeight.bold,
             color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomerChitFundsSection(BuildContext context, CustomerController controller) {
+    final cId = controller.customerId;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.savings_rounded, color: Color(0xFF0F766E), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'My Chit Funds',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F766E).withAlpha(25),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '${controller.customerChitFunds.length} Enrolled',
+                style: const TextStyle(
+                  color: Color(0xFF0F766E),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...controller.customerChitFunds.map((ChitFund fund) {
+          final member = fund.members.firstWhereOrNull((m) => m.customerId == cId);
+          if (member == null) return const SizedBox.shrink();
+
+          final progress = (member.monthsPaid / fund.durationMonths).clamp(0.0, 1.0);
+          final bool isComplete = member.monthsPaid >= fund.durationMonths;
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 1,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppColors.border),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0F766E).withAlpha(20),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    fund.category,
+                                    style: const TextStyle(
+                                      color: Color(0xFF0F766E),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Ticket #${member.ticketNumber}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              fund.schemeName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isComplete ? Colors.green.shade50 : Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isComplete ? 'MATURED' : 'MONTH ${member.monthsPaid + 1}/${fund.durationMonths}',
+                          style: TextStyle(
+                            color: isComplete ? Colors.green.shade700 : const Color(0xFF0F766E),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Value', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                          const SizedBox(height: 2),
+                          Text(
+                            EmiHelper.formatCurrency(fund.totalValue),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Paid so far', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                          const SizedBox(height: 2),
+                          Text(
+                            EmiHelper.formatCurrency(member.totalContributed),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.paid),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text('Monthly Due', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                          const SizedBox(height: 2),
+                          Text(
+                            EmiHelper.formatCurrency(fund.monthlyContribution),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F766E)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 6,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0F766E)),
+                    ),
+                  ),
+                  if (fund.bonusDescription.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(Icons.card_giftcard, color: Colors.amber, size: 14),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Bonus Reward: ${fund.bonusDescription}',
+                            style: TextStyle(color: Colors.brown.shade800, fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (!isComplete) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          await controller.payCustomerChitContribution(fund: fund, member: member);
+                        },
+                        icon: const Icon(Icons.flash_on, size: 16),
+                        label: Text(
+                          'PAY MONTH #${member.monthsPaid + 1} (${EmiHelper.formatCurrency(fund.monthlyContribution)})',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F766E),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildPureChitFundHeroCard(BuildContext context, CustomerController controller) {
+    final fund = controller.customerChitFunds.first;
+    final member = fund.members.firstWhereOrNull((m) => m.customerId == controller.customerId);
+    final isComplete = member != null && member.monthsPaid >= fund.durationMonths;
+    final int nextMonth = member != null ? member.monthsPaid + 1 : 1;
+    final double progress = member != null ? (member.monthsPaid / fund.durationMonths).clamp(0.0, 1.0) : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F766E), Color(0xFF115E59), Color(0xFF134E4A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F766E).withAlpha(80),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(40),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.savings_rounded, color: Colors.amberAccent, size: 14),
+                    SizedBox(width: 6),
+                    Text(
+                      'ACTIVE CHIT FUND SAVINGS',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (member != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isComplete ? Colors.green.shade400 : Colors.amber.shade300,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isComplete ? 'MATURED' : 'Ticket #${member.ticketNumber}',
+                    style: TextStyle(
+                      color: isComplete ? Colors.white : Colors.brown.shade900,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            fund.schemeName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.category_outlined, color: Colors.white70, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                fund.category,
+                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(width: 12),
+              const Icon(Icons.event_repeat, color: Colors.white70, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                '${fund.durationMonths} Months Plan',
+                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                EmiHelper.formatCurrency(fund.monthlyContribution),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isComplete ? 'Fully Completed' : 'Monthly Due (Month #$nextMonth)',
+                style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.white.withAlpha(40),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.amberAccent),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                member != null ? '${member.monthsPaid} of ${fund.durationMonths} Months Saved' : '',
+                style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              Text(
+                '${(progress * 100).toInt()}% Completed',
+                style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          if (fund.bonusDescription.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withAlpha(40),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.card_giftcard, color: Colors.amberAccent, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Bonus Gift: ${fund.bonusDescription}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (!isComplete && member != null) ...[
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  await controller.payCustomerChitContribution(fund: fund, member: member);
+                },
+                icon: const Icon(Icons.flash_on, size: 22),
+                label: Text(
+                  'PAY MONTH #$nextMonth (${EmiHelper.formatCurrency(fund.monthlyContribution)})',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF0F766E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  elevation: 4,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPureChitFundSummaryCard(CustomerController controller) {
+    double totalChitValue = 0;
+    double totalPaid = 0;
+    int totalMonths = 0;
+    int totalPaidMonths = 0;
+
+    for (final fund in controller.customerChitFunds) {
+      final m = fund.members.firstWhereOrNull((member) => member.customerId == controller.customerId);
+      if (m != null) {
+        totalChitValue += fund.totalValue;
+        totalPaid += m.totalContributed;
+        totalMonths += fund.durationMonths;
+        totalPaidMonths += m.monthsPaid;
+      }
+    }
+    final remaining = (totalChitValue - totalPaid).clamp(0.0, double.infinity);
+    final progress = totalMonths > 0 ? (totalPaidMonths / totalMonths).clamp(0.0, 1.0) : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CHIT FUND SAVINGS SUMMARY',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSummaryMetric(
+                      'Total Chit Value',
+                      EmiHelper.formatCurrency(totalChitValue),
+                      AppColors.textPrimary,
+                    ),
+                  ),
+                  Container(width: 1, height: 40, color: AppColors.border),
+                  Expanded(
+                    child: _buildSummaryMetric(
+                      'Total Saved',
+                      EmiHelper.formatCurrency(totalPaid),
+                      const Color(0xFF0F766E),
+                    ),
+                  ),
+                  Container(width: 1, height: 40, color: AppColors.border),
+                  Expanded(
+                    child: _buildSummaryMetric(
+                      'Remaining',
+                      EmiHelper.formatCurrency(remaining),
+                      AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Overall Contribution Progress',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Text(
+                    '$totalPaidMonths of $totalMonths Months Saved',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0F766E),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 12,
+                  backgroundColor: AppColors.surfaceVariant,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0F766E)),
+                ),
+              ),
+            ],
           ),
         ),
       ],

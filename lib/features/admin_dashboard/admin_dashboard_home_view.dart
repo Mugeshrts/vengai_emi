@@ -6,7 +6,10 @@ import '../../core/models/emi_installment_model.dart';
 import '../../core/models/emi_account_model.dart';
 import 'admin_controller.dart';
 import 'create_emi_view.dart';
+import 'create_chit_fund_view.dart';
+import 'chit_fund_dashboard_view.dart';
 import 'emi_details_view.dart';
+import 'admin_drawer.dart';
 
 class AdminDashboardHomeView extends StatelessWidget {
   const AdminDashboardHomeView({super.key});
@@ -17,7 +20,15 @@ class AdminDashboardHomeView extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      drawer: const AdminDrawer(),
       appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu, color: AppColors.primary),
+            tooltip: 'Menu',
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         backgroundColor: Colors.white,
         elevation: 1,
         title: Column(
@@ -71,12 +82,28 @@ class AdminDashboardHomeView extends StatelessWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Get.to(() => const CreateEmiView()),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('CREATE EMI', style: TextStyle(fontWeight: FontWeight.bold)),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'fab_create_fund',
+            onPressed: () => Get.to(() => const CreateChitFundView()),
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.savings_rounded, size: 20),
+            label: const Text('CREATE FUND', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'fab_create_emi',
+            onPressed: () => Get.to(() => const CreateEmiView()),
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add, size: 20),
+            label: const Text('CREATE EMI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
+        ],
       ),
       body: Obx(() {
         final upcomingList = controller.upcomingInstallmentsWithDetails;
@@ -195,6 +222,64 @@ class AdminDashboardHomeView extends StatelessWidget {
 
                 const SizedBox(height: 18),
 
+                // Chit Fund Quick Access Hub
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDFA),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF99F6E4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F766E).withAlpha(25),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.savings_rounded, color: Color(0xFF0F766E), size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Chit Fund Dashboard',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F766E)),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${controller.chitFunds.where((f) => f.status == "ACTIVE").length} Active Schemes • ${controller.chitFunds.fold(0, (sum, f) => sum + f.members.length)} Members Enrolled',
+                              style: TextStyle(fontSize: 12, color: Colors.teal.shade900),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Get.to(() => const ChitFundDashboardView()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F766E),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 0,
+                        ),
+                        child: const Row(
+                          children: [
+                            Text('View Hub', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            SizedBox(width: 4),
+                            Icon(Icons.arrow_forward_ios, size: 10),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
                 // 2. Metrics Grid (Requirement 17)
                 GridView.count(
                   crossAxisCount: 2,
@@ -231,7 +316,9 @@ class AdminDashboardHomeView extends StatelessWidget {
                       icon: Icons.warning_amber_rounded,
                       color: AppColors.overdue,
                       bgColor: AppColors.overdueBg,
-                      subtitle: EmiHelper.formatCurrency(controller.totalOverdueAmount),
+                      subtitle: controller.totalOverduePenaltyAmount > 0
+                          ? '${EmiHelper.formatCurrency(controller.totalOverdueAmount)} (+${EmiHelper.formatCurrency(controller.totalOverduePenaltyAmount)} fee)'
+                          : EmiHelper.formatCurrency(controller.totalOverdueAmount),
                     ),
                   ],
                 ),
@@ -276,6 +363,8 @@ class AdminDashboardHomeView extends StatelessWidget {
                     final inst = item['installment'] as EmiInstallment;
                     final acc = item['account'] as EmiAccount;
                     final daysOverdue = item['daysOverdue'] as int;
+                    final penaltyAmount = (item['penaltyAmount'] as num?)?.toDouble() ?? 0.0;
+                    final totalDue = (item['totalDue'] as num?)?.toDouble() ?? inst.amount;
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -291,30 +380,85 @@ class AdminDashboardHomeView extends StatelessWidget {
                           backgroundColor: AppColors.overdue,
                           child: const Icon(Icons.priority_high, color: Colors.white, size: 20),
                         ),
-                        title: Text(
-                          acc.customerName,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                acc.customerName,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.overdue,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$daysOverdue DAYS OVERDUE',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        subtitle: Text(
-                          '${acc.productName} • $daysOverdue days overdue\nDue: ${EmiHelper.formatDate(inst.dueDate)}',
-                          style: const TextStyle(fontSize: 13, height: 1.3),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 3),
+                            Text(
+                              '${acc.productName} • Due: ${EmiHelper.formatDate(inst.dueDate)}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Text(
+                                  'Base: ${EmiHelper.formatCurrency(inst.amount)}',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                ),
+                                if (penaltyAmount > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade100,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.red.shade300),
+                                    ),
+                                    child: Text(
+                                      '+ Late Fee: ${EmiHelper.formatCurrency(penaltyAmount)}',
+                                      style: TextStyle(
+                                        color: Colors.red.shade900,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
                         ),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              EmiHelper.formatCurrency(inst.amount),
+                              EmiHelper.formatCurrency(totalDue),
                               style: const TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w900,
                                 color: AppColors.overdue,
                               ),
                             ),
                             const Text(
-                              '! OVERDUE',
+                              'Total Collectible',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.overdue,
                               ),

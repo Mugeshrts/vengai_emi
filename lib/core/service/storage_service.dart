@@ -6,6 +6,7 @@ import '../models/emi_account_model.dart';
 import '../models/emi_installment_model.dart';
 import '../models/payment_model.dart';
 import '../models/reminder_model.dart';
+import '../models/chit_fund_model.dart';
 import 'emi_helper.dart';
 import 'seed_data.dart';
 
@@ -23,6 +24,7 @@ class StorageService extends GetxService {
     } else {
       // Re-evaluate statuses dynamically on app launch
       refreshInstallmentStatuses();
+      await _migrateChitFundsAndUsers();
     }
 
     return this;
@@ -37,12 +39,16 @@ class StorageService extends GetxService {
     final List<EmiInstallment> installments = data['installments'];
     final List<PaymentModel> payments = data['payments'];
     final List<ReminderModel> reminders = data['reminders'];
+    final List<ChitFund> chitFunds = data['chitFunds'] ?? [];
+    final List<ChitPayment> chitPayments = data['chitPayments'] ?? [];
 
     await saveUsers(users);
     await saveEmiAccounts(accounts);
     await saveInstallments(installments);
     await savePayments(payments);
     await saveReminders(reminders);
+    await saveChitFunds(chitFunds);
+    await saveChitPayments(chitPayments);
 
     // Save default settings
     await _box.write(AppConstants.keySettings, {
@@ -164,6 +170,38 @@ class StorageService extends GetxService {
     );
   }
 
+  // --- Chit Funds ---
+  List<ChitFund> getChitFunds() {
+    final raw = _box.read<List>(AppConstants.keyChitFunds);
+    if (raw == null) return [];
+    return raw
+        .map((item) => ChitFund.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<void> saveChitFunds(List<ChitFund> funds) async {
+    await _box.write(
+      AppConstants.keyChitFunds,
+      funds.map((e) => e.toJson()).toList(),
+    );
+  }
+
+  // --- Chit Payments ---
+  List<ChitPayment> getChitPayments() {
+    final raw = _box.read<List>(AppConstants.keyChitPayments);
+    if (raw == null) return [];
+    return raw
+        .map((item) => ChitPayment.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<void> saveChitPayments(List<ChitPayment> payments) async {
+    await _box.write(
+      AppConstants.keyChitPayments,
+      payments.map((e) => e.toJson()).toList(),
+    );
+  }
+
   // --- Settings ---
   Map<String, String> getSettings() {
     final raw = _box.read(AppConstants.keySettings);
@@ -203,6 +241,74 @@ class StorageService extends GetxService {
 
     if (modified) {
       saveInstallments(installments);
+    }
+  }
+
+  // Migrate any previous gold/jewelry schemes to furniture & electronics schemes
+  Future<void> _migrateChitFundsAndUsers() async {
+    final funds = getChitFunds();
+    bool fundsUpdated = false;
+
+    for (int i = 0; i < funds.length; i++) {
+      final f = funds[i];
+      if (f.category.toLowerCase().contains('gold') || f.schemeName.toLowerCase().contains('gold')) {
+        funds[i] = ChitFund(
+          id: f.id,
+          schemeName: 'Diwali Mega Electronics Chit 2026',
+          category: 'Electronics & Appliances',
+          totalValue: f.totalValue,
+          monthlyContribution: f.monthlyContribution,
+          durationMonths: f.durationMonths,
+          maxMembers: f.maxMembers,
+          bonusAmount: f.bonusAmount,
+          bonusDescription: 'Free 3-Burner Glass Top Gas Stove & Mixer Grinder Combo on Completion',
+          startDate: f.startDate,
+          status: f.status,
+          createdAt: f.createdAt,
+          members: f.members,
+          notes: f.notes,
+        );
+        fundsUpdated = true;
+      }
+      if (f.category.toLowerCase().contains('cash') && f.schemeName.contains('Mega Savings')) {
+        funds[i] = ChitFund(
+          id: f.id,
+          schemeName: 'Vengai Premium Home Furniture Chit',
+          category: 'Home Furniture',
+          totalValue: f.totalValue,
+          monthlyContribution: f.monthlyContribution,
+          durationMonths: f.durationMonths,
+          maxMembers: f.maxMembers,
+          bonusAmount: f.bonusAmount,
+          bonusDescription: 'Free Solid Teakwood Center Table on Scheme Completion',
+          startDate: f.startDate,
+          status: f.status,
+          createdAt: f.createdAt,
+          members: f.members,
+          notes: f.notes,
+        );
+        fundsUpdated = true;
+      }
+    }
+
+    if (fundsUpdated) {
+      await saveChitFunds(funds);
+    }
+
+    // Ensure Anitha (pure chit fund user) exists in users
+    final users = getUsers();
+    if (!users.any((u) => u.username.toLowerCase() == 'anitha')) {
+      users.add(UserModel(
+        id: 'usr_cust_6',
+        username: 'anitha',
+        password: '123',
+        name: 'Anitha Selvam',
+        mobile: '9840123999',
+        role: 'CUSTOMER',
+        customerId: 'CUST-1006',
+        isActive: true,
+      ));
+      await saveUsers(users);
     }
   }
 }

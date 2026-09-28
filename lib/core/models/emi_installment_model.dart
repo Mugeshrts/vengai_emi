@@ -10,6 +10,7 @@ class EmiInstallment {
   String? paymentMethod; // 'Cash', 'UPI', 'Bank Transfer', 'Other'
   String? transactionId;
   String? notes;
+  double penaltyAmount;
 
   EmiInstallment({
     required this.id,
@@ -23,9 +24,11 @@ class EmiInstallment {
     this.paymentMethod,
     this.transactionId,
     this.notes,
+    this.penaltyAmount = 0.0,
   });
 
   bool get isPaid => status.toUpperCase() == 'PAID';
+  double get totalAmount => amount + penaltyAmount;
 
   factory EmiInstallment.fromJson(Map<String, dynamic> json) {
     return EmiInstallment(
@@ -40,6 +43,7 @@ class EmiInstallment {
       paymentMethod: json['paymentMethod'],
       transactionId: json['transactionId'],
       notes: json['notes'],
+      penaltyAmount: (json['penaltyAmount'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -56,6 +60,7 @@ class EmiInstallment {
       'paymentMethod': paymentMethod,
       'transactionId': transactionId,
       'notes': notes,
+      'penaltyAmount': penaltyAmount,
     };
   }
 
@@ -71,6 +76,7 @@ class EmiInstallment {
     String? paymentMethod,
     String? transactionId,
     String? notes,
+    double? penaltyAmount,
   }) {
     return EmiInstallment(
       id: id ?? this.id,
@@ -84,6 +90,7 @@ class EmiInstallment {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       transactionId: transactionId ?? this.transactionId,
       notes: notes ?? this.notes,
+      penaltyAmount: penaltyAmount ?? this.penaltyAmount,
     );
   }
 }
