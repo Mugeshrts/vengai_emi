@@ -8,6 +8,7 @@ import 'admin_settings_view.dart';
 import 'emi_calculator_view.dart';
 import 'create_emi_view.dart';
 import 'create_chit_fund_view.dart';
+import 'user_management_view.dart';
 
 class AdminDrawer extends StatelessWidget {
   const AdminDrawer({super.key});
@@ -190,6 +191,22 @@ class AdminDrawer extends StatelessWidget {
                     onTap: () {
                       Navigator.pop(context);
                       Get.to(() => const ReportsView());
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.manage_accounts_rounded, color: Colors.indigo),
+                    title: const Text(
+                      'User Management',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                    ),
+                    subtitle: Obx(() => Text(
+                      '${controller.users.where((u) => !u.isAdmin).length} user logins • credentials & delete',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    )),
+                    trailing: const Icon(Icons.chevron_right, size: 20, color: AppColors.textMuted),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Get.to(() => const UserManagementView());
                     },
                   ),
                   ListTile(

@@ -6,6 +6,8 @@ import 'admin_controller.dart';
 import 'emi_details_view.dart';
 import 'create_emi_view.dart';
 import 'admin_drawer.dart';
+import 'user_management_view.dart';
+import '../../core/models/emi_account_model.dart';
 
 class CustomersView extends StatelessWidget {
   const CustomersView({super.key});
@@ -32,6 +34,11 @@ class CustomersView extends StatelessWidget {
         foregroundColor: AppColors.textPrimary,
         elevation: 1,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.manage_accounts_outlined, color: AppColors.primary),
+            tooltip: 'Manage All Users',
+            onPressed: () => Get.to(() => const UserManagementView()),
+          ),
           IconButton(
             icon: const Icon(Icons.person_add_alt_1, color: AppColors.primary),
             tooltip: 'Create New EMI',
@@ -199,6 +206,14 @@ class CustomersView extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                  tooltip: 'Delete Options',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () => _confirmDeleteCustomer(context, controller, acc),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -273,6 +288,60 @@ class CustomersView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _confirmDeleteCustomer(
+    BuildContext context,
+    AdminController controller,
+    EmiAccount acc,
+  ) {
+    Get.defaultDialog(
+      title: 'Delete Customer / Account',
+      titleStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+      content: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Choose deletion option for ${acc.customerName} (${acc.customerId}):',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: Colors.orange.shade200),
+              ),
+              tileColor: Colors.orange.shade50,
+              leading: const Icon(Icons.inventory_2_outlined, color: Colors.orange),
+              title: const Text('Delete This EMI Account Only', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              subtitle: Text('Removes ${acc.productName} plan & related payments', style: const TextStyle(fontSize: 11)),
+              onTap: () async {
+                Get.back();
+                await controller.deleteEmiAccount(accountId: acc.id, productName: acc.productName);
+              },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: Colors.red.shade200),
+              ),
+              tileColor: Colors.red.shade50,
+              leading: const Icon(Icons.person_remove_outlined, color: Colors.red),
+              title: const Text('Delete Entire Customer Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red)),
+              subtitle: const Text('Deletes user login, all EMI plans, chits & history', style: TextStyle(fontSize: 11)),
+              onTap: () async {
+                Get.back();
+                await controller.deleteCustomer(customerId: acc.customerId, customerName: acc.customerName);
+              },
+            ),
+          ],
+        ),
+      ),
+      textCancel: 'Cancel',
     );
   }
 }

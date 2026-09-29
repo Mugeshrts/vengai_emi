@@ -4,6 +4,7 @@ import '../../core/constants/color.dart';
 import '../auth/auth_controller.dart';
 import 'admin_controller.dart';
 import 'emi_calculator_view.dart';
+import 'user_management_view.dart';
 
 class AdminSettingsView extends StatelessWidget {
   const AdminSettingsView({super.key});
@@ -154,6 +155,17 @@ class AdminSettingsView extends StatelessWidget {
                     subtitle: const Text('Calculate interest (1%-50%), tenure & monthly EMI'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Get.to(() => const EmiCalculatorView()),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: Colors.indigo,
+                      child: Icon(Icons.manage_accounts, color: Colors.white),
+                    ),
+                    title: const Text('User & Account Management', style: TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: const Text('Manage logins, credentials & delete customer accounts'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Get.to(() => const UserManagementView()),
                   ),
                   const Divider(height: 1),
                   ListTile(

@@ -697,6 +697,75 @@ class AdminController extends GetxController {
     );
   }
 
+  // --- Customer & User Deletion Operations ---
+  Future<bool> deleteCustomer({required String customerId, required String customerName}) async {
+    final success = await _storage.deleteCustomer(customerId);
+    if (success) {
+      loadAllData();
+      Get.snackbar(
+        'Customer Deleted',
+        'Successfully removed $customerName and all related accounts/records.',
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+      );
+    } else {
+      Get.snackbar('Error', 'Failed to delete customer', backgroundColor: Colors.red.shade100);
+    }
+    return success;
+  }
+
+  Future<bool> deleteUser({required UserModel user}) async {
+    if (user.isAdmin) {
+      Get.snackbar('Action Denied', 'Administrator accounts cannot be deleted.', backgroundColor: Colors.orange.shade100);
+      return false;
+    }
+    final success = await _storage.deleteUser(user.id);
+    if (success) {
+      loadAllData();
+      Get.snackbar(
+        'User Deleted',
+        'User account "${user.username}" (${user.name}) deleted successfully.',
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+      );
+    } else {
+      Get.snackbar('Error', 'Failed to delete user account', backgroundColor: Colors.red.shade100);
+    }
+    return success;
+  }
+
+  Future<bool> deleteEmiAccount({required String accountId, required String productName}) async {
+    final success = await _storage.deleteEmiAccount(accountId);
+    if (success) {
+      loadAllData();
+      Get.snackbar(
+        'EMI Account Deleted',
+        'Successfully removed EMI for $productName ($accountId).',
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+      );
+    } else {
+      Get.snackbar('Error', 'Failed to delete EMI account', backgroundColor: Colors.red.shade100);
+    }
+    return success;
+  }
+
+  Future<bool> removeChitMember({required String chitFundId, required String customerId, required String memberName}) async {
+    final success = await _storage.removeChitMember(chitFundId, customerId);
+    if (success) {
+      loadAllData();
+      Get.snackbar(
+        'Member Removed',
+        'Successfully removed $memberName from Chit Fund.',
+        backgroundColor: Colors.orange.shade100,
+        colorText: Colors.orange.shade900,
+      );
+    } else {
+      Get.snackbar('Error', 'Failed to remove member from Chit Fund', backgroundColor: Colors.red.shade100);
+    }
+    return success;
+  }
+
   // --- Reset Demo Data (Requirement 52) ---
   Future<void> resetDemoData() async {
     await _storage.resetToDemoData();

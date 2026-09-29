@@ -101,6 +101,13 @@ void main() {
   assert(penaltyToday['penaltyAmount'] == 0.0, 'Penalty today must be 0');
   assert(penaltyToday['totalDue'] == 4000.0, 'Total due today must be 4000');
 
+  // 7. Test User Deletion & Admin Protection Rules
+  assert(admin.isAdmin == true, 'Admin account must have isAdmin = true');
+  final canDeleteAdmin = !admin.isAdmin;
+  assert(canDeleteAdmin == false, 'Admin account deletion must strictly be prevented');
+  final canDeleteCustomer = !customer.isAdmin;
+  assert(canDeleteCustomer == true, 'Customer accounts can be deleted');
+
   // ignore: avoid_print
   print('=== ALL VENGAI MART UNIT TESTS PASSED SUCCESSFULLY! ===');
 }

@@ -311,4 +311,100 @@ class StorageService extends GetxService {
       await saveUsers(users);
     }
   }
+
+  // --- Deletion Methods ---
+  Future<bool> deleteCustomer(String customerId) async {
+    // 1. Remove from users (protect admin)
+    final users = getUsers();
+    users.removeWhere((u) => u.customerId == customerId && !u.isAdmin);
+    await saveUsers(users);
+
+    // 2. Remove EMI accounts
+    final accounts = getEmiAccounts();
+    final accountIdsToRemove = accounts.where((a) => a.customerId == customerId).map((a) => a.id).toSet();
+    accounts.removeWhere((a) => a.customerId == customerId);
+    await saveEmiAccounts(accounts);
+
+    // 3. Remove installments
+    final installments = getInstallments();
+    installments.removeWhere((i) => i.customerId == customerId || accountIdsToRemove.contains(i.emiAccountId));
+    await saveInstallments(installments);
+
+    // 4. Remove payments
+    final payments = getPayments();
+    payments.removeWhere((p) => p.customerId == customerId || accountIdsToRemove.contains(p.emiAccountId));
+    await savePayments(payments);
+
+    // 5. Remove reminders
+    final reminders = getReminders();
+    reminders.removeWhere((r) => r.customerId == customerId);
+    await saveReminders(reminders);
+
+    // 6. Remove member from Chit Funds
+    final funds = getChitFunds();
+    bool fundsModified = false;
+    for (var f in funds) {
+      final initialCount = f.members.length;
+      f.members.removeWhere((m) => m.customerId == customerId);
+      if (f.members.length != initialCount) {
+        fundsModified = true;
+      }
+    }
+    if (fundsModified) {
+      await saveChitFunds(funds);
+    }
+
+    // 7. Remove Chit Payments
+    final chitPayments = getChitPayments();
+    chitPayments.removeWhere((cp) => cp.customerId == customerId);
+    await saveChitPayments(chitPayments);
+
+    return true;
+  }
+
+  Future<bool> deleteUser(String userId) async {
+    final users = getUsers();
+    final user = users.firstWhereOrNull((u) => u.id == userId);
+    if (user == null || user.isAdmin) return false;
+
+    if (user.customerId != null && user.customerId!.isNotEmpty) {
+      return await deleteCustomer(user.customerId!);
+    } else {
+      users.removeWhere((u) => u.id == userId);
+      await saveUsers(users);
+      return true;
+    }
+  }
+
+  Future<bool> deleteEmiAccount(String emiAccountId) async {
+    final accounts = getEmiAccounts();
+    final acc = accounts.firstWhereOrNull((a) => a.id == emiAccountId);
+    if (acc == null) return false;
+
+    accounts.removeWhere((a) => a.id == emiAccountId);
+    await saveEmiAccounts(accounts);
+
+    final installments = getInstallments();
+    installments.removeWhere((i) => i.emiAccountId == emiAccountId);
+    await saveInstallments(installments);
+
+    final payments = getPayments();
+    payments.removeWhere((p) => p.emiAccountId == emiAccountId);
+    await savePayments(payments);
+
+    return true;
+  }
+
+  Future<bool> removeChitMember(String chitFundId, String customerId) async {
+    final funds = getChitFunds();
+    final fundIdx = funds.indexWhere((f) => f.id == chitFundId);
+    if (fundIdx == -1) return false;
+
+    final fund = funds[fundIdx];
+    fund.members.removeWhere((m) => m.customerId == customerId);
+    funds[fundIdx] = fund;
+    await saveChitFunds(funds);
+
+    return true;
+  }
 }

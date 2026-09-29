@@ -22,6 +22,18 @@ class EmiDetailsView extends StatelessWidget {
         backgroundColor: Colors.white,
         foregroundColor: AppColors.textPrimary,
         elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            tooltip: 'Delete Account or Customer',
+            onPressed: () {
+              final account = controller.accounts.firstWhereOrNull((a) => a.id == emiAccountId);
+              if (account != null) {
+                _confirmDelete(context, controller, account);
+              }
+            },
+          ),
+        ],
       ),
       body: Obx(() {
         final account = controller.accounts.firstWhereOrNull((a) => a.id == emiAccountId);
@@ -688,6 +700,62 @@ class EmiDetailsView extends StatelessWidget {
         },
       ),
       isScrollControlled: true,
+    );
+  }
+
+  void _confirmDelete(BuildContext context, AdminController controller, EmiAccount account) {
+    Get.defaultDialog(
+      title: 'Delete EMI / Customer',
+      titleStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+      content: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Manage removal for ${account.customerName} (${account.customerId}):',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: Colors.orange.shade200),
+              ),
+              tileColor: Colors.orange.shade50,
+              leading: const Icon(Icons.inventory_2_outlined, color: Colors.orange),
+              title: const Text('Delete This EMI Account Only', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              subtitle: Text('Removes ${account.productName} plan & related payments', style: const TextStyle(fontSize: 11)),
+              onTap: () async {
+                Get.back();
+                final success = await controller.deleteEmiAccount(accountId: account.id, productName: account.productName);
+                if (success) {
+                  Get.back();
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: Colors.red.shade200),
+              ),
+              tileColor: Colors.red.shade50,
+              leading: const Icon(Icons.person_remove_outlined, color: Colors.red),
+              title: const Text('Delete Entire Customer Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red)),
+              subtitle: const Text('Deletes user login, all EMI plans, chits & history', style: TextStyle(fontSize: 11)),
+              onTap: () async {
+                Get.back();
+                final success = await controller.deleteCustomer(customerId: account.customerId, customerName: account.customerName);
+                if (success) {
+                  Get.back();
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+      textCancel: 'Cancel',
     );
   }
 }
